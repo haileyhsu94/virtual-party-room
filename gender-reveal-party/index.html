@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>答案揭曉派對廳</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <main class="app">
+      <section id="setupPanel" class="panel">
+        <h1>答案揭曉派對廳</h1>
+        <p>先輸入你的名字，主辦設定好揭曉時間後即可入場。</p>
+        <label>
+          房間 ID
+          <input id="roomInput" type="text" placeholder="例如：party-1" maxlength="40" />
+        </label>
+        <label>
+          你的名字
+          <input id="nameInput" type="text" placeholder="例如：小安" maxlength="20" />
+        </label>
+        <div class="btn-row">
+          <button id="joinBtn" type="button">進入虛擬派對廳</button>
+          <button id="hostBtn" type="button" class="ghost">主辦設定</button>
+          <button id="resetBtn" type="button" class="ghost">重設統計</button>
+        </div>
+        <p id="partyConfigTip" class="tip"></p>
+        <p id="timeTip" class="tip"></p>
+      </section>
+
+      <section id="gamePanel" class="hidden">
+        <header class="topbar">
+          <div class="hud-left">
+            <strong id="welcomeText"></strong>
+            <p id="countdownText" class="tip"></p>
+          </div>
+          <div class="top-stats" aria-label="預測統計">
+            <div class="stat-chip" title="猜男生">
+              <span class="gender-icon" aria-hidden="true">♂</span>
+              <strong id="boyCount">0</strong>
+            </div>
+            <div class="stat-chip" title="猜女生">
+              <span class="gender-icon" aria-hidden="true">♀</span>
+              <strong id="girlCount">0</strong>
+            </div>
+          </div>
+          <button id="openMobileChatBtn" type="button" class="ghost chat-icon-btn" aria-label="開啟聊天室">
+            💬
+            <span id="mobileChatBadge" class="chat-badge hidden">0</span>
+          </button>
+          <button id="leaveBtn" type="button" class="ghost">離開派對廳</button>
+        </header>
+
+        <div class="layout">
+          <section class="hall-wrap">
+            <div id="hall" class="hall" aria-label="虛擬派對廳">
+              <div class="decor banner">園遊會</div>
+              <div class="decor balloons" aria-hidden="true">
+                <span class="balloon b1"></span>
+                <span class="balloon b2"></span>
+                <span class="balloon b3"></span>
+                <span class="balloon b4"></span>
+                <span class="balloon b5"></span>
+                <span class="balloon b6"></span>
+                <span class="balloon b7"></span>
+                <span class="balloon b8"></span>
+                <span class="balloon b9"></span>
+                <span class="balloon b10"></span>
+                <span class="balloon b11"></span>
+                <span class="balloon b12"></span>
+                <span class="balloon b13"></span>
+                <span class="balloon b14"></span>
+                <span class="balloon b15"></span>
+                <span class="balloon b16"></span>
+                <span class="balloon b17"></span>
+                <span class="balloon b18"></span>
+              </div>
+              <canvas id="vibeFxCanvas" class="vibe-fx-canvas" aria-hidden="true"></canvas>
+              <div id="blessingTicker" class="blessing-ticker" aria-live="polite"></div>
+              <div id="partyFxLayer" class="party-fx-layer" aria-hidden="true"></div>
+              <div class="decor ferris-count-sign">搭乘 <strong id="ferrisCount">0/6</strong></div>
+              <div class="decor ferris" aria-hidden="true">
+                <div id="ferrisWheel" class="ferris-wheel"></div>
+                <div class="ferris-cabin c0"></div>
+                <div class="ferris-cabin c1"></div>
+                <div class="ferris-cabin c2"></div>
+                <div class="ferris-cabin c3"></div>
+                <div class="ferris-cabin c4"></div>
+                <div class="ferris-cabin c5"></div>
+              </div>
+              <div class="decor lodge">
+                <span class="lodge-title">KTV Stage</span>
+                <span class="lodge-count">歡唱人數 <strong id="loungeCount">0 人</strong></span>
+                <span class="ktv-mic" aria-hidden="true"></span>
+                <span class="ktv-light l1" aria-hidden="true"></span>
+                <span class="ktv-light l2" aria-hidden="true"></span>
+                <span class="ktv-light l3" aria-hidden="true"></span>
+                <span class="ktv-note n1" aria-hidden="true">♪</span>
+                <span class="ktv-note n2" aria-hidden="true">♫</span>
+                <span class="ktv-note n3" aria-hidden="true">♩</span>
+                <span class="ktv-note n4" aria-hidden="true">♬</span>
+              </div>
+              <div class="table stall food-pizza" aria-label="披薩攤"></div>
+              <div class="table stall food-cake" aria-label="蛋糕攤"></div>
+              <div class="table stall food-fried" aria-label="炸物攤"></div>
+              <div class="table stall drink-boba" aria-label="珍珠奶茶攤"></div>
+              <div class="table stall drink-coffee" aria-label="咖啡廳"></div>
+              <div class="table stall drink-herbal" aria-label="青草茶攤"></div>
+              <div class="table stall blessing-stall">💌 祝福卡片攤</div>
+              <div id="playerNameTag" class="name-tag hidden">訪客</div>
+              <div id="catBaqiTag" class="name-tag npc-tag">巴奇</div>
+              <div id="catDubiTag" class="name-tag npc-tag">嘟比</div>
+
+              <div id="player" class="avatar player" title="你">
+                <div class="sprite human">
+                  <span class="head"></span>
+                  <span class="body"></span>
+                  <span class="foot left"></span>
+                  <span class="foot right"></span>
+                </div>
+              </div>
+              <div id="catBaqi" class="avatar cat silver" title="巴奇">
+                <div class="sprite catto">
+                  <span class="ear left"></span>
+                  <span class="ear right"></span>
+                  <span class="head"></span>
+                  <span class="body"></span>
+                  <span class="tail"></span>
+                  <span class="paw left"></span>
+                  <span class="paw right"></span>
+                </div>
+              </div>
+              <div id="catDubi" class="avatar cat cream" title="嘟比">
+                <div class="sprite catto">
+                  <span class="ear left"></span>
+                  <span class="ear right"></span>
+                  <span class="head"></span>
+                  <span class="body"></span>
+                  <span class="tail"></span>
+                  <span class="paw left"></span>
+                  <span class="paw right"></span>
+                </div>
+              </div>
+            </div>
+
+            <p class="tip controls" id="controlTip"></p>
+          </section>
+
+          <aside class="board">
+            <h2>預測統計版</h2>
+            <ul id="guessList" class="guess-list"></ul>
+
+            <div class="chat-wrap">
+              <h3>派對聊天</h3>
+              <div id="chatList" class="chat-list" aria-live="polite"></div>
+              <div class="chat-input-row">
+                <input id="chatInput" type="text" placeholder="輸入聊天訊息" maxlength="120" />
+                <button id="sendChatBtn" type="button">送出</button>
+              </div>
+              <p class="tip">即時聊天目前支援同瀏覽器分頁同步。</p>
+            </div>
+          </aside>
+        </div>
+      </section>
+    </main>
+
+    <dialog id="catDialog" class="dialog">
+      <h3 id="catName">巴奇</h3>
+      <p id="catLine">要不要猜猜是男生還是女生？</p>
+      <div class="btn-row">
+        <button data-guess="boy" type="button">我猜男生</button>
+        <button data-guess="girl" type="button">我猜女生</button>
+        <button data-guess="later" type="button" class="ghost">晚點再猜</button>
+      </div>
+    </dialog>
+
+    <dialog id="resultDialog" class="dialog">
+      <h3>答案揭曉</h3>
+      <p id="revealText"></p>
+      <button id="closeResult" type="button">知道了</button>
+    </dialog>
+
+    <dialog id="ferrisDialog" class="dialog">
+      <h3>摩天輪</h3>
+      <p id="ferrisLine">要搭乘摩天輪嗎？</p>
+      <div class="btn-row">
+        <button id="ferrisYesBtn" type="button">搭乘</button>
+        <button id="ferrisNoBtn" type="button" class="ghost">先不要</button>
+      </div>
+    </dialog>
+
+    <dialog id="blessingDialog" class="dialog">
+      <h3>祝福卡片攤</h3>
+      <p id="blessingLine">要發送生日祝福嗎？</p>
+      <div class="btn-row">
+        <button id="blessingSendBtn" type="button">發送祝福</button>
+        <button id="blessingCancelBtn" type="button" class="ghost">先不要</button>
+      </div>
+    </dialog>
+
+    <dialog id="hostDialog" class="dialog">
+      <h3>主辦設定</h3>
+      <label>
+        主辦碼
+        <input id="hostCodeInput" type="password" placeholder="請輸入主辦碼" />
+      </label>
+      <label>
+        房號
+        <input id="hostRoomInput" type="text" placeholder="例如：party-1" maxlength="40" />
+      </label>
+      <label>
+        揭曉時間
+        <input id="hostRevealInput" type="datetime-local" />
+      </label>
+      <label>
+        公布答案
+        <select id="hostAnswerSelect">
+          <option value="男生">男生</option>
+          <option value="女生">女生</option>
+        </select>
+      </label>
+      <div class="btn-row">
+        <button id="saveHostBtn" type="button">儲存設定</button>
+        <button id="closeHostBtn" type="button" class="ghost">取消</button>
+      </div>
+      <p id="hostTip" class="tip"></p>
+    </dialog>
+
+    <dialog id="mobileChatDialog" class="dialog mobile-chat-dialog">
+      <div class="mobile-chat-head">
+        <h3>派對聊天</h3>
+        <button id="mobileChatCloseBtn" type="button" class="ghost mobile-chat-close" aria-label="關閉聊天室">✕</button>
+      </div>
+      <div id="mobileChatList" class="chat-list mobile-chat-list" aria-live="polite"></div>
+      <div class="chat-input-row">
+        <input id="mobileChatInput" type="text" placeholder="輸入聊天訊息" maxlength="120" />
+        <button id="mobileSendChatBtn" type="button">送出</button>
+      </div>
+    </dialog>
+
+    <script>
+      // Firebase realtime multi-device sync (no login required).
+      // If `databaseURL` is blank, app.js will auto-build one from projectId.
+      window.__FIREBASE_CONFIG__ = {
+        apiKey: "AIzaSyD8kphEn-926sSYBeB37pBNW_r97c-xgbc",
+        authDomain: "party-room-playground.firebaseapp.com",
+        databaseURL: "",
+        projectId: "party-room-playground",
+        storageBucket: "party-room-playground.firebasestorage.app",
+        messagingSenderId: "964370260575",
+        appId: "1:964370260575:web:de2db79c253cb3b303b1ea",
+        measurementId: "G-HL1946BFT7",
+      };
+
+      // Share same room across devices with URL, e.g. ?room=party-0225
+      const roomQuery = new URLSearchParams(window.location.search).get("room");
+      window.__PARTY_ROOM_ID__ = roomQuery || "party-room-1";
+    </script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>
