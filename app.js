@@ -5,7 +5,8 @@ const ktvStoreKey = "genderRevealKtvInside";
 const ferrisStoreKey = "genderRevealFerrisState";
 const ferrisRideMs = 20_000;
 const catFerrisRideMs = 10_000;
-const catFerrisCooldownMs = 12_000;
+const catFerrisCooldownMs = 10_000;
+const playerFerrisCooldownMs = 10_000;
 const ferrisCapacity = 6;
 const ferrisWheelScale = 0.78;
 const ferrisControllerLeaseMs = 6000;
@@ -93,10 +94,12 @@ const state = {
   dialogCat: null,
   dialogSource: "",
   catAskCooldownUntil: 0,
+  catAskBlockedUntil: 0,
   inBlessingStall: false,
   inKtvZone: false,
   inFerrisRide: false,
   ferrisPromptCooldownUntil: 0,
+  ferrisPromptedInZone: false,
   blessingCards: [],
   blessingFxNextAt: 0,
   mobileChatUnread: 0,
@@ -829,6 +832,7 @@ function moveCats() {
     }
 
     updateCatBehavior(cat, now);
+    maybeAttractCatToFerris(cat, now);
 
     const speedMul = cat.mode === "idle" ? 0 : cat.mode === "sprint" ? 2.35 : 1;
     cat.x += cat.vx * speedMul;
@@ -847,6 +851,31 @@ function moveCats() {
     const freq = cat.mode === "idle" ? 0.65 : 1;
     cat.renderOffsetY = Math.sin(t * freq + cat.bobPhase) * amp;
   });
+}
+
+function maybeAttractCatToFerris(cat, now) {
+  if (!isFerrisSimulationController()) return;
+  if (state.ferris.riders.length + state.ferris.catRiders.length >= ferrisCapacity) return;
+  const sharedCooldownUntil = Number(state.ferris.catCooldownUntil?.[cat.name]) || 0;
+  const localCooldownUntil = Number(cat.ferrisCooldownUntil) || 0;
+  if (now < Math.max(sharedCooldownUntil, localCooldownUntil)) return;
+  const g = state.ferrisGeom?.hall;
+  if (!g || !Number.isFinite(g.centerX) || !Number.isFinite(g.centerY)) return;
+
+  const dx = g.centerX - cat.x;
+  const dy = g.centerY - cat.y;
+  const dist = Math.hypot(dx, dy);
+  if (dist < 0.001) return;
+  if (dist < Math.max(7, (g.rx || 8) * 1.15)) return;
+  if (Math.random() > 0.12) return;
+
+  const ux = dx / dist;
+  const uy = dy / dist;
+  const speed = 0.075 + Math.random() * 0.02;
+  cat.vx = ux * speed;
+  cat.vy = uy * speed;
+  cat.mode = "stroll";
+  cat.modeUntil = now + randomInt(900, 1800);
 }
 
 function renderAll() {
@@ -1039,8 +1068,11 @@ function updatePlayerWalkFrame(dx, dy) {
 function checkCatTouchAsk() {
   if (el.gamePanel.classList.contains("hidden")) return;
   if (state.revealed) return;
+  if (Date.now() < (state.catAskBlockedUntil || 0)) return;
+  if (state.inFerrisRide) return;
   if (isAnyDialogOpen()) return;
   if (!state.playerName || !state.revealAt) return;
+  if (isInsideFerrisZone(state.player.x, state.player.y)) return;
   if (hasAnsweredGuess(state.playerName)) return;
   if (Date.now() < state.catAskCooldownUntil) return;
 
@@ -1054,7 +1086,10 @@ function checkCatTouchAsk() {
 function openCatDialog(cat, source) {
   if (el.gamePanel.classList.contains("hidden")) return;
   if (state.revealed) return;
+  if (Date.now() < (state.catAskBlockedUntil || 0)) return;
+  if (state.inFerrisRide) return;
   if (!state.playerName || !state.revealAt) return;
+  if (isInsideFerrisZone(state.player.x, state.player.y)) return;
   if (isAnyDialogOpen()) return;
 
   const msLeft = state.revealAt.getTime() - Date.now();
@@ -1614,17 +1649,16 @@ function randomInt(min, max) {
 
 function onFerrisYes() {
   if (!state.playerName) return;
-  const inZone = isInsideFerrisZone(state.player.x, state.player.y);
-  if (!inZone) {
-    el.ferrisDialog.close();
-    return;
-  }
-
+  state.catAskBlockedUntil = Math.max(state.catAskBlockedUntil || 0, Date.now() + ferrisRideMs + 3000);
+  optimisticBoardSelf();
   enqueueOrBoardFerris(state.playerName);
+  state.ferrisPromptedInZone = true;
+  state.ferrisPromptCooldownUntil = Date.now() + 2500;
   el.ferrisDialog.close();
 }
 
 function onFerrisNo() {
+  state.ferrisPromptedInZone = true;
   state.ferrisPromptCooldownUntil = Date.now() + 6000;
   el.ferrisDialog.close();
 }
@@ -1706,7 +1740,8 @@ function updateFerrisSystem() {
   const expiredNames = [];
   const ridersBefore = state.ferris.riders.length;
   state.ferris.riders = state.ferris.riders.filter((rider) => {
-    const alive = now - rider.startAt < ferrisRideMs;
+    const endAt = Number(rider.endAt) || (Number(rider.startAt) || 0) + ferrisRideMs;
+    const alive = now < endAt;
     if (!alive) expiredNames.push(rider.name);
     return alive;
   });
@@ -1732,6 +1767,13 @@ function updateFerrisSystem() {
       state.moving.left = false;
       state.moving.right = false;
     }
+    state.ferris.playerCooldownUntil = state.ferris.playerCooldownUntil || {};
+    expiredNames.forEach((name) => {
+      state.ferris.playerCooldownUntil[name] = Math.max(
+        Number(state.ferris.playerCooldownUntil[name]) || 0,
+        now + playerFerrisCooldownMs,
+      );
+    });
     expiredCatNames.forEach((catName) => {
       const cat = Object.values(state.cats).find((c) => c.name === catName);
       if (!cat) return;
@@ -1761,8 +1803,23 @@ function maybePromptFerrisRide() {
   if (isAnyDialogOpen()) return;
   if (state.inFerrisRide) return;
   if (Date.now() < state.ferrisPromptCooldownUntil) return;
-  if (!isInsideFerrisZone(state.player.x, state.player.y)) return;
+  const inZone = isInsideFerrisZone(state.player.x, state.player.y);
+  if (!inZone) {
+    state.ferrisPromptedInZone = false;
+    return;
+  }
+  if (state.ferrisPromptedInZone) return;
   if (isInFerrisQueue(state.playerName)) return;
+  const now = Date.now();
+  const cooldownUntil = Number(state.ferris.playerCooldownUntil?.[state.playerName]) || 0;
+  if (cooldownUntil > now) {
+    const sec = Math.max(1, Math.ceil((cooldownUntil - now) / 1000));
+    state.ferrisPromptedInZone = true;
+    state.ferrisPromptCooldownUntil = now + 1500;
+    el.ferrisLine.textContent = `冷卻中，${sec} 秒後可再次搭乘。`;
+    el.ferrisDialog.showModal();
+    return;
+  }
 
   const alreadyRiding = state.ferris.riders.some((r) => r.name === state.playerName);
   if (alreadyRiding) return;
@@ -1772,6 +1829,7 @@ function maybePromptFerrisRide() {
     available > 0
       ? `要搭乘摩天輪嗎？目前空位 ${available} 個。`
       : `摩天輪目前客滿，排隊中 ${state.ferris.queue.length} 人，要排隊嗎？`;
+  state.ferrisPromptedInZone = true;
   el.ferrisDialog.showModal();
 }
 
@@ -1784,6 +1842,7 @@ function fillFerrisFromQueue(now) {
     state.ferris.riders.push({
       name: next.name,
       startAt: now,
+      endAt: now + ferrisRideMs,
       cabinIndex: cabin,
     });
     changed = true;
@@ -1792,19 +1851,41 @@ function fillFerrisFromQueue(now) {
 }
 
 function enqueueOrBoardFerris(name) {
-  pruneExpiredFerrisOccupancy(Date.now());
-  if (state.ferris.riders.some((r) => r.name === name)) return;
-  if (isInFerrisQueue(name)) return;
+  if (state.realtime.enabled && state.realtime.roomRef) {
+    enqueueOrBoardFerrisRealtime(name);
+    return;
+  }
 
-  if (state.ferris.riders.length + state.ferris.catRiders.length < ferrisCapacity) {
-    const cabin = getFreeFerrisCabin();
-    if (cabin >= 0) {
+  // Clean stale occupancy first to maximize immediate boarding chance.
+  pruneExpiredFerrisOccupancy(Date.now());
+  const now = Date.now();
+  const cooldownUntil = Number(state.ferris.playerCooldownUntil?.[name]) || 0;
+  if (cooldownUntil > now) return;
+  if (state.ferris.riders.some((r) => r.name === name)) return;
+  if (isInFerrisQueue(name)) {
+    // If user already queued, try boarding now if a seat is free.
+    const free = getFreeFerrisCabin();
+    if (free >= 0) {
+      state.ferris.queue = state.ferris.queue.filter((q) => q.name !== name);
       state.ferris.riders.push({
         name,
         startAt: Date.now(),
-        cabinIndex: cabin,
+        endAt: Date.now() + ferrisRideMs,
+        cabinIndex: free,
       });
+      saveFerrisState();
     }
+    return;
+  }
+
+  let cabin = getFreeFerrisCabin();
+  if (cabin >= 0) {
+    state.ferris.riders.push({
+      name,
+      startAt: Date.now(),
+      endAt: Date.now() + ferrisRideMs,
+      cabinIndex: cabin,
+    });
   } else {
     state.ferris.queue.push({ name, at: Date.now() });
   }
@@ -1812,9 +1893,111 @@ function enqueueOrBoardFerris(name) {
   saveFerrisState();
 }
 
+function enqueueOrBoardFerrisRealtime(name) {
+  const ferrisRef = state.realtime.roomRef?.child?.("ferris");
+  if (!ferrisRef) return;
+
+  ferrisRef.transaction(
+    (current) => {
+      const now = Date.now();
+      const next = normalizeFerrisState(current);
+      next.playerCooldownUntil = next.playerCooldownUntil || {};
+      const aliveRiders = next.riders.filter((r) => {
+        const endAt = Number(r.endAt) || (Number(r.startAt) || 0) + ferrisRideMs;
+        return now < endAt;
+      });
+      const aliveCats = next.catRiders.filter((r) => {
+        const endAt = Number(r.endAt) || (Number(r.startAt) || 0) + catFerrisRideMs;
+        return now < endAt;
+      });
+      next.riders = aliveRiders;
+      next.catRiders = aliveCats;
+      const cooldownUntil = Number(next.playerCooldownUntil[name]) || 0;
+      if (cooldownUntil > now) return next;
+
+      if (next.riders.some((r) => r.name === name)) return next;
+
+      const queueWithoutSelf = next.queue.filter((q) => q.name !== name);
+      next.queue = queueWithoutSelf;
+
+      const used = new Set([
+        ...next.riders.map((r) => r.cabinIndex),
+        ...next.catRiders.map((r) => r.cabinIndex),
+      ]);
+      let cabin = -1;
+      for (let i = 0; i < ferrisCapacity; i += 1) {
+        if (!used.has(i)) {
+          cabin = i;
+          break;
+        }
+      }
+
+      if (cabin >= 0) {
+        next.riders.push({
+          name,
+          startAt: now,
+          endAt: now + ferrisRideMs,
+          cabinIndex: cabin,
+        });
+      } else {
+        next.queue.push({ name, at: now });
+      }
+
+      return next;
+    },
+    (err, committed, snap) => {
+      if (err || !committed) return;
+      state.ferris = normalizeFerrisState(snap?.val?.());
+      syncLocalFerrisRideState();
+      updateFerrisCount();
+    },
+    false,
+  );
+}
+
+function optimisticBoardSelf() {
+  if (!state.playerName) return;
+  const now = Date.now();
+  const cooldownUntil = Number(state.ferris.playerCooldownUntil?.[state.playerName]) || 0;
+  if (cooldownUntil > now) return;
+  pruneExpiredFerrisOccupancy(now);
+  if (state.ferris.riders.some((r) => r.name === state.playerName)) {
+    syncLocalFerrisRideState();
+    return;
+  }
+
+  const used = new Set([
+    ...state.ferris.riders.map((r) => r.cabinIndex),
+    ...state.ferris.catRiders.map((r) => r.cabinIndex),
+  ]);
+  let cabin = -1;
+  for (let i = 0; i < ferrisCapacity; i += 1) {
+    if (!used.has(i)) {
+      cabin = i;
+      break;
+    }
+  }
+
+  if (cabin >= 0) {
+    state.ferris.riders.push({
+      name: state.playerName,
+      startAt: now,
+      endAt: now + ferrisRideMs,
+      cabinIndex: cabin,
+    });
+  } else if (!isInFerrisQueue(state.playerName)) {
+    state.ferris.queue.push({ name: state.playerName, at: now });
+  }
+  syncLocalFerrisRideState();
+  updateFerrisCount();
+}
+
 function pruneExpiredFerrisOccupancy(now) {
   let changed = false;
-  const nextRiders = state.ferris.riders.filter((r) => now - Number(r.startAt || 0) < ferrisRideMs);
+  const nextRiders = state.ferris.riders.filter((r) => {
+    const endAt = Number(r.endAt) || (Number(r.startAt) || 0) + ferrisRideMs;
+    return now < endAt;
+  });
   if (nextRiders.length !== state.ferris.riders.length) {
     state.ferris.riders = nextRiders;
     changed = true;
@@ -1842,18 +2025,32 @@ function leaveFerrisAndQueue(name) {
 }
 
 function isInsideFerrisZone(x, y) {
-  const g = state.ferrisGeom?.hall;
-  if (g && Number.isFinite(g.centerX) && Number.isFinite(g.centerY) && Number.isFinite(g.rx) && Number.isFinite(g.ry)) {
-    const dx = x - g.centerX;
-    const dy = y - g.centerY;
-    const nx = dx / (g.rx * 1.35 || 1);
-    const ny = dy / (g.ry * 1.35 || 1);
-    return nx * nx + ny * ny <= 1;
+  const hallRect = el.hall?.getBoundingClientRect();
+  const ferrisRect = el.ferrisRoot?.getBoundingClientRect();
+  if (
+    hallRect &&
+    ferrisRect &&
+    hallRect.width > 0 &&
+    hallRect.height > 0 &&
+    ferrisRect.width > 0 &&
+    ferrisRect.height > 0
+  ) {
+    const px = hallRect.left + (x / 100) * hallRect.width;
+    const py = hallRect.top + (y / 100) * hallRect.height;
+    const padX = ferrisRect.width * 0.42;
+    const padY = ferrisRect.height * 0.42;
+    return (
+      px >= ferrisRect.left - padX &&
+      px <= ferrisRect.right + padX &&
+      py >= ferrisRect.top - padY &&
+      py <= ferrisRect.bottom + padY
+    );
   }
-  const left = 2;
-  const right = 38;
-  const top = 52;
-  const bottom = 96;
+
+  const left = 1;
+  const right = 40;
+  const top = 50;
+  const bottom = 97;
   return x >= left && x <= right && y >= top && y <= bottom;
 }
 
@@ -1876,6 +2073,7 @@ function syncLocalFerrisRideState() {
   const rider = state.ferris.riders.find((r) => r.name === state.playerName);
   state.inFerrisRide = Boolean(rider);
   if (!rider) return;
+  state.catAskBlockedUntil = Math.max(state.catAskBlockedUntil || 0, Date.now() + 3000);
 
   const pos = getFerrisCabinPosition(rider.cabinIndex);
   state.player.x = pos.x;
@@ -1955,7 +2153,7 @@ function loadFerrisState() {
 
 function normalizeFerrisState(raw) {
   if (!raw || typeof raw !== "object") {
-    return { riders: [], queue: [], catRiders: [], catCooldownUntil: {} };
+    return { riders: [], queue: [], catRiders: [], catCooldownUntil: {}, playerCooldownUntil: {} };
   }
   const riders = Array.isArray(raw.riders)
     ? raw.riders
@@ -1963,6 +2161,9 @@ function normalizeFerrisState(raw) {
         .map((r) => ({
           name: r.name.slice(0, 20),
           startAt: Number.isFinite(Number(r.startAt)) ? Number(r.startAt) : 0,
+          endAt: Number.isFinite(Number(r.endAt))
+            ? Number(r.endAt)
+            : (Number.isFinite(Number(r.startAt)) ? Number(r.startAt) : Date.now()) + ferrisRideMs,
           cabinIndex: clamp(Math.floor(Number(r.cabinIndex) || 0), 0, ferrisCapacity - 1),
         }))
     : [];
@@ -1994,6 +2195,14 @@ function normalizeFerrisState(raw) {
             .map(([name, ts]) => [name, Number(ts) || 0]),
         )
       : {};
+  const playerCooldownUntil =
+    raw.playerCooldownUntil && typeof raw.playerCooldownUntil === "object"
+      ? Object.fromEntries(
+          Object.entries(raw.playerCooldownUntil)
+            .filter(([name]) => typeof name === "string")
+            .map(([name, ts]) => [name, Number(ts) || 0]),
+        )
+      : {};
   const dedupCatMap = new Map();
   catRiders.forEach((r) => {
     const prev = dedupCatMap.get(r.catName);
@@ -2005,14 +2214,18 @@ function normalizeFerrisState(raw) {
     dedupCatMap.set(r.catName, (Number(r.endAt) || 0) >= (Number(prev.endAt) || 0) ? r : prev);
   });
   const dedupCatRiders = Array.from(dedupCatMap.values());
-  return { riders, queue, catRiders: dedupCatRiders, catCooldownUntil };
+  return { riders, queue, catRiders: dedupCatRiders, catCooldownUntil, playerCooldownUntil };
 }
 
 function isFerrisSimulationController() {
   if (!state.realtime.enabled) return true;
   const lease = state.ferrisControl.remote;
   const now = Date.now();
-  const hasActiveLease = Boolean(lease && Number(lease.until) > now && lease.ownerId);
+  const until = Number(lease?.until) || 0;
+  const updatedAt = Number(lease?.updatedAt) || 0;
+  const stale = updatedAt > 0 && now - updatedAt > ferrisControllerLeaseMs * 3;
+  const absurdFuture = until - now > ferrisControllerLeaseMs * 20;
+  const hasActiveLease = Boolean(lease && until > now && lease.ownerId && !stale && !absurdFuture);
   if (hasActiveLease) return lease.ownerId === state.presence.clientId;
   if (!state.playerName || el.gamePanel.classList.contains("hidden")) return false;
   const ids = [state.presence.clientId, ...Object.keys(state.remotePlayers)].sort();
@@ -2089,24 +2302,34 @@ function releaseFerrisController() {
 
 function autoBoardCatsToFerris(now) {
   let changed = false;
+  const g = state.ferrisGeom?.hall;
   Object.values(state.cats).forEach((cat) => {
     const alreadyRiding = state.ferris.catRiders.some((r) => r.catName === cat.name);
     if (alreadyRiding) return;
     const sharedCooldownUntil = Number(state.ferris.catCooldownUntil?.[cat.name]) || 0;
     const localCooldownUntil = Number(cat.ferrisCooldownUntil) || 0;
-    if (now < Math.max(sharedCooldownUntil, localCooldownUntil)) return;
-    if (!isInsideFerrisZone(cat.x, cat.y)) return;
+    let cooldownUntil = Math.max(sharedCooldownUntil, localCooldownUntil);
+    if (cooldownUntil - now > 10 * 60 * 1000) cooldownUntil = now;
+    if (now < cooldownUntil) return;
+    // Cats can board when inside zone or close to Ferris center.
+    const nearFerris =
+      g &&
+      Number.isFinite(g.centerX) &&
+      Number.isFinite(g.centerY) &&
+      Math.hypot(cat.x - g.centerX, cat.y - g.centerY) <= Math.max(14, (g.rx || 8) * 1.95);
+    const randomHopOn = Math.random() < 0.12;
+    if (!isInsideFerrisZone(cat.x, cat.y) && !nearFerris && !randomHopOn) return;
     if (state.ferris.riders.length + state.ferris.catRiders.length >= ferrisCapacity) return;
     const cabin = getFreeFerrisCabin();
     if (cabin < 0) return;
     const endAt = now + catFerrisRideMs;
-    const cooldownUntil = endAt + catFerrisCooldownMs;
+    const nextCooldownUntil = endAt + catFerrisCooldownMs;
     state.ferris.catCooldownUntil = state.ferris.catCooldownUntil || {};
     state.ferris.catCooldownUntil[cat.name] = Math.max(
       Number(state.ferris.catCooldownUntil[cat.name]) || 0,
-      cooldownUntil,
+      nextCooldownUntil,
     );
-    cat.ferrisCooldownUntil = Math.max(Number(cat.ferrisCooldownUntil) || 0, cooldownUntil);
+    cat.ferrisCooldownUntil = Math.max(Number(cat.ferrisCooldownUntil) || 0, nextCooldownUntil);
 
     state.ferris.catRiders.push({
       catName: cat.name,
