@@ -1,0 +1,39 @@
+{
+  /* Visit https://firebase.google.com/docs/database/security to learn more about security rules. */
+  "rules": {
+    "rooms": {
+      "$roomId": {
+        ".read": "$roomId.matches(/^[A-Za-z0-9_-]{1,40}$/)",
+        ".write": "$roomId.matches(/^[A-Za-z0-9_-]{1,40}$/)",
+
+        "config": {
+          ".validate": "newData.hasChildren(['revealAt','answer','updatedAt']) && newData.child('revealAt').isString() && newData.child('revealAt').val().length <= 40 && newData.child('updatedAt').isString() && newData.child('updatedAt').val().length <= 40 && newData.child('answer').isString() && (newData.child('answer').val() === '男生' || newData.child('answer').val() === '女生')"
+        },
+
+        "guesses": {
+          ".validate": "newData.exists() || !newData.exists()"
+        },
+
+        "ktvInside": {
+          ".validate": "newData.exists() || !newData.exists()"
+        },
+
+        "ferris": {
+          ".validate": "newData.hasChildren(['riders','queue','catRiders'])"
+        },
+
+        "players": {
+          "$clientId": {
+            ".validate": "newData.hasChildren(['id','name','x','y','dir','frame','moving','type','head','body','updatedAt']) && newData.child('id').isString() && newData.child('id').val().length <= 64 && newData.child('name').isString() && newData.child('name').val().length > 0 && newData.child('name').val().length <= 20 && newData.child('x').isNumber() && newData.child('x').val() >= 0 && newData.child('x').val() <= 100 && newData.child('y').isNumber() && newData.child('y').val() >= 0 && newData.child('y').val() <= 100 && newData.child('dir').isString() && (newData.child('dir').val() === 'up' || newData.child('dir').val() === 'down' || newData.child('dir').val() === 'left' || newData.child('dir').val() === 'right') && newData.child('frame').isNumber() && newData.child('frame').val() >= 0 && newData.child('frame').val() <= 2 && newData.child('moving').isBoolean() && newData.child('type').isNumber() && newData.child('type').val() >= 0 && newData.child('type').val() <= 2 && newData.child('head').isString() && newData.child('head').val().length <= 32 && newData.child('body').isString() && newData.child('body').val().length <= 32 && newData.child('updatedAt').isNumber()"
+          }
+        },
+
+        "chats": {
+          "$chatId": {
+            ".validate": "newData.hasChildren(['id','name','text','at','createdAt','system']) && newData.child('id').isString() && newData.child('id').val().length <= 80 && newData.child('name').isString() && newData.child('name').val().length > 0 && newData.child('name').val().length <= 20 && newData.child('text').isString() && newData.child('text').val().length > 0 && newData.child('text').val().length <= 120 && newData.child('at').isString() && newData.child('at').val().length <= 20 && newData.child('createdAt').isNumber() && newData.child('system').isBoolean()"
+          }
+        }
+      }
+    }
+  }
+}
